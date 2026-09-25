@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>SU Seed Collection</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.css" />
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.js"></script>
+<style>
+  body {
+    font-family: 'Times New Roman', serif;
+    background: #d4d0c8; color: #000;
+    margin: 0; padding: 0;
+  }
+  .titlebar {
+    background: #000080; color: #fff;
+    padding: 4px 8px; font-size: 14px; font-weight: bold;
+    font-family: 'MS Sans Serif', 'Arial', sans-serif;
+  }
+  .toolbar {
+    background: #d4d0c8;
+    border-bottom: 2px solid #808080;
+    padding: 2px 6px;
+    font-family: 'MS Sans Serif', 'Arial', sans-serif;
+    font-size: 12px; color: #000;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .toolbar span { white-space: nowrap; }
+  .toolbar button {
+    font-family: 'MS Sans Serif', 'Arial', sans-serif;
+    font-size: 11px; padding: 2px 8px;
+    background: #d4d0c8; border: 2px outset #fff; cursor: pointer;
+  }
+  .toolbar button:active { border-style: inset; }
+  .toolbar button.active { border-style: inset; background: #bbb; }
+  .main { border: 2px inset #fff; margin: 4px; }
+  #map { height: 600px; }
+  .legend-bar {
+    background: #d4d0c8;
+    border-top: 2px solid #808080;
+    padding: 4px 8px;
+    font-family: 'MS Sans Serif', 'Arial', sans-serif;
+    font-size: 11px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .legend-bar .grad {
+    width: 180px; height: 12px;
+    background: linear-gradient(to right, rgb(180,0,0), rgb(240,120,120), rgb(255,255,255), rgb(120,120,240), rgb(0,0,180));
+    border: 1px solid #808080;
+  }
+  .statusbar {
+    background: #d4d0c8;
+    border-top: 1px solid #808080;
+    padding: 2px 8px;
+    font-family: 'MS Sans Serif', 'Arial', sans-serif;
+    font-size: 11px; color: #000;
+  }
+  .panel {
+    background: #d4d0c8;
+    border: 2px outset #fff;
+    margin: 4px; padding: 6px;
+    font-family: 'MS Sans Serif', 'Arial', sans-serif;
+    font-size: 12px;
+  }
+  .panel h3 {
+    margin: 0 0 4px; font-size: 13px;
+    border-bottom: 1px solid #808080; padding-bottom: 2px;
+  }
+  .panel .dismiss {
+    float: right; font-size: 11px; cursor: pointer;
+    background: #d4d0c8; border: 2px outset #fff;
+    padding: 0 6px; font-family: 'MS Sans Serif', 'Arial', sans-serif;
+  }
+  .panel .dismiss:active { border-style: inset; }
+  .filters { margin: 4px 0; }
+  .filter-btn {
+    font-size: 11px; padding: 1px 6px; margin: 1px;
+    font-family: 'MS Sans Serif', 'Arial', sans-serif;
+    background: #d4d0c8; border: 2px outset #fff; cursor: pointer;
+  }
+  .filter-btn.active { border-style: inset; background: #000080; color: #fff; }
+  .results { max-height: 300px; overflow-y: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 11px; font-family: 'MS Sans Serif', 'Arial', sans-serif; }
+  th { background: #000080; color: #fff; padding: 2px 4px; text-align: left; font-weight: normal; }
+  td { padding: 2px 4px; border-bottom: 1px solid #808080; }
+  tr:nth-child(even) td { background: #e8e8e0; }
+  .apex-label {
+    background: none; border: none; padding: 0;
+    font-family: 'MS Sans Serif', 'Arial', sans-serif;
+    font-size: 13px; font-weight: bold; white-space: nowrap;
+    color: #000;
+    text-shadow: -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff, 1px 1px 0 #fff;
+  }
+  .apex-label .star { color: #ffd700; font-size: 18px; text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000; }
+  @media (max-width: 640px) { #map { height: 380px; } }
+</style>
+</head>
+<body>
+<div class="titlebar">SU Seed Collection</div>
+<div class="toolbar">
+  <span id="stats"></span>
+  <span>Resolution:</span>
+  <button id="btn-fine" class="active">Fine</button>
+  <button id="btn-2x">2×</button>
+  <button id="btn-4x">4×</button>
+  <button id="btn-8x">8×</button>
+</div>
+<div class="main"><div id="map"></div></div>
+<div class="legend-bar">
+  <span>Low</span><div class="grad"></div><span>High</span>
+  <span style="margin-left:12px" id="peak-label"></span>
+</div>
+<div class="statusbar" id="statusbar">Click map to query species.</div>
+<div id="panel-container"></div>
+
+<script>
+(function () {
+  // Red-white-blue: 0=red 0.5=white 1=blue
+  function rwb(t) {
+    if (t <= 0.5) {
+      const s = t / 0.5;
+      return [Math.round(180 + 75 * s), Math.round(255 * s), Math.round(255 * s)];
+    } else {
+      const s = (t - 0.5) / 0.5;
+      return [Math.round(255 * (1 - s)), Math.round(255 * (1 - s)), Math.round(180 + 75 * (1 - s))];
+    }
+  }
+
+  function pointInRing(ring, lng, lat) {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const xi = ring[i][0], yi = ring[i][1];
+      const xj = ring[j][0], yj = ring[j][1];
+      if ((yi > lat) !== (yj > lat) && lng < (xj - xi) * (lat - yi) / (yj - yi) + xi)
+        inside = !inside;
+    }
+    return inside;
+  }
+
+  // Coarsen grid by factor k: non-overlapping k×k blocks, max value
+  function coarsen(grid, k) {
+    if (k <= 1) return grid;
+    const { nx, ny, data, bbox, res } = grid;
+    const cnx = Math.ceil(nx / k);
+    const cny = Math.ceil(ny / k);
+    const cdata = [];
+    let cmax = 0;
+    for (let cj = 0; cj < cny; cj++) {
+      const row = [];
+      for (let ci = 0; ci < cnx; ci++) {
+        let best = 0;
+        for (let dj = 0; dj < k; dj++) {
+          const j = cj * k + dj;
+          if (j >= ny) break;
+          for (let di = 0; di < k; di++) {
+            const i = ci * k + di;
+            if (i >= nx) break;
+            const v = data[j][i];
+            if (v > best) best = v;
+          }
+        }
+        row.push(best);
+        if (best > cmax) cmax = best;
+      }
+      cdata.push(row);
+    }
+    return { nx: cnx, ny: cny, data: cdata, bbox, res: res * k, max: cmax };
+  }
+
+  function buildOverlayUrl(g) {
+    const { nx, ny, data, bbox, res } = g;
+    const gmax = g.max;
+    const [, S, , N] = bbox;
+    const D2R = Math.PI / 180, R2D = 180 / Math.PI;
+    const mercY = lat => Math.log(Math.tan(Math.PI / 4 + (lat * D2R) / 2));
+    const invMercY = y => (2 * Math.atan(Math.exp(y)) - Math.PI / 2) * R2D;
+    const yN = mercY(N), yS = mercY(S);
+    const H = Math.max(ny * 2, ny);
+    const cv = document.createElement('canvas');
+    cv.width = nx; cv.height = H;
+    const ctx = cv.getContext('2d');
+    const img = ctx.createImageData(nx, H);
+    for (let row = 0; row < H; row++) {
+      const my = yN - (row / (H - 1)) * (yN - yS);
+      const lat = invMercY(my);
+      let j = Math.round((lat - S) / res);
+      if (j < 0) j = 0; else if (j > ny - 1) j = ny - 1;
+      const srcRow = data[j];
+      for (let x = 0; x < nx; x++) {
+        const v = srcRow[x];
+        if (!v || v < 1) continue;
+        const t = gmax > 1 ? v / gmax : 1;
+        const [r, g, b] = rwb(t);
+        const i = (row * nx + x) * 4;
+        img.data[i] = r; img.data[i+1] = g; img.data[i+2] = b; img.data[i+3] = 200;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    return cv.toDataURL();
+  }
+
+  function partitionGrid(g) {
+    const { nx, ny, data, bbox, res } = g;
+    const [W, S] = bbox;
+    const cells = [];
+    for (let j = 0; j < ny; j++) {
+      for (let i = 0; i < nx; i++) {
+        const v = data[j][i];
+        if (v > 0) cells.push({ lng: W + i * res, lat: S + j * res, v, i, j });
+      }
+    }
+    cells.sort((a, b) => a.lng - b.lng);
+    const total = cells.reduce((s, c) => s + c.v, 0);
+    const third = total / 3;
+    const regions = [[], [], []];
+    let acc = 0, ri = 0;
+    for (const c of cells) {
+      regions[ri].push(c);
+      acc += c.v;
+      if (acc >= third * (ri + 1) && ri < 2) ri++;
+    }
+    const apexes = regions.map(reg => {
+      if (!reg.length) return null;
+      let best = reg[0];
+      for (const c of reg) if (c.v > best.v) best = c;
+      return best;
+    });
+    const boundaries = [];
+    if (regions[0].length && regions[1].length)
+      boundaries.push((regions[0][regions[0].length - 1].lng + regions[1][0].lng) / 2);
+    if (regions[1].length && regions[2].length)
+      boundaries.push((regions[1][regions[1].length - 1].lng + regions[2][0].lng) / 2);
+    return { apexes, boundaries };
+  }
+
+  let rangesMap = {};
+  let currentFilter = '';
+
+  function renderPanel(found, lat, lng) {
+    currentFilter = '';
+    const container = document.getElementById('panel-container');
+    container.innerHTML = '';
+    const panel = document.createElement('div');
+    panel.className = 'panel';
+    container.appendChild(panel);
+    updatePanel(panel, found, lat, lng);
+  }
+
+  function updatePanel(panel, found, lat, lng) {
+    const filtered = currentFilter ? found.filter(s => s.family === currentFilter) : found;
+    const families = [...new Set(found.map(s => s.family))].sort();
+
+    let html = `<button class="dismiss" onclick="this.parentElement.remove()">[X]</button>`;
+    html += `<h3>${found.length} species at ${lat}°N, ${Math.abs(lng)}°W</h3>`;
+    if (found.length > 0) {
+      html += `<button class="filter-btn" id="download-csv" style="margin-bottom:6px">Download CSV</button>`;
+    }
+
+    if (families.length > 1) {
+      html += '<div class="filters">';
+      html += `<button class="filter-btn ${!currentFilter ? 'active' : ''}" data-fam="">All (${found.length})</button>`;
+      for (const fam of families) {
+        const c = found.filter(s => s.family === fam).length;
+        html += `<button class="filter-btn ${currentFilter === fam ? 'active' : ''}" data-fam="${fam}">${fam} (${c})</button>`;
+      }
+      html += '</div>';
+    }
+
+    if (filtered.length === 0) {
+      html += `<p>No species at this location.</p>`;
+    } else {
+      html += '<div class="results"><table><thead><tr><th>#</th><th>Species</th><th>Common name</th><th>Family</th></tr></thead><tbody>';
+      filtered.forEach((sp, idx) => {
+        html += `<tr><td>${idx+1}</td><td><i>${sp.species_name}</i></td><td>${sp.common_name}</td><td>${sp.family}</td></tr>`;
+      });
+      html += '</tbody></table></div>';
+    }
+
+    panel.innerHTML = html;
+    panel.querySelectorAll('.filter-btn[data-fam]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        currentFilter = btn.dataset.fam === currentFilter ? '' : btn.dataset.fam;
+        updatePanel(panel, found, lat, lng);
+      });
+    });
+    const dlBtn = panel.querySelector('#download-csv');
+    if (dlBtn) {
+      dlBtn.addEventListener('click', () => {
+        const rows = [['Species','Common Name','Family']];
+        (currentFilter ? found.filter(s => s.family === currentFilter) : found)
+          .forEach(sp => rows.push([sp.species_name, sp.common_name, sp.family]));
+        const csv = rows.map(r => r.map(c => '"' + (c||'').replace(/"/g,'""') + '"').join(',')).join('\n');
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `species_${lat}_${Math.abs(lng)}.csv`;
+        a.click();
+      });
+    }
+  }
+
+  async function init() {
+    let baseGrid, ranges, species, states;
+    try {
+      [baseGrid, ranges, species, states] = await Promise.all([
+        fetch('seed_richness.json').then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch('seed_ranges.json').then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch('seed_species.json').then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch('sw_states.json').then(r => r.ok ? r.json() : []).catch(() => []),
+      ]);
+    } catch (e) { return; }
+
+    if (!baseGrid && !ranges) {
+      document.getElementById('statusbar').textContent = 'No data. Run: python build_seed_collection.py observations.csv';
+      return;
+    }
+
+    rangesMap = ranges?.ranges || {};
+
+    const totalRanges = Object.values(rangesMap).filter(r => r.polygons?.length && !r.too_few).length;
+    document.getElementById('stats').textContent =
+      (species ? species.length + ' species' : '') +
+      (totalRanges ? ' | ' + totalRanges + ' ranges' : '') +
+      (baseGrid ? ' | peak: ' + baseGrid.max : '');
+
+    const [W, S, E, N] = baseGrid ? baseGrid.bbox : [-125, 25, -93, 43];
+
+    const map = L.map('map').fitBounds([[S, W], [N, E]]);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap',
+    }).addTo(map);
+
+    let overlayLayer = null;
+    let apexMarkers = [];
+    let partitionLines = [];
+
+    function renderOverlay(factor) {
+      // Remove old overlay and markers
+      if (overlayLayer) { map.removeLayer(overlayLayer); overlayLayer = null; }
+      apexMarkers.forEach(m => map.removeLayer(m));
+      apexMarkers = [];
+      partitionLines.forEach(l => map.removeLayer(l));
+      partitionLines = [];
+
+      if (!baseGrid) return;
+
+      const g = coarsen(baseGrid, factor);
+      const url = buildOverlayUrl(g);
+      overlayLayer = L.imageOverlay(url, [[S, W], [N, E]], { opacity: 0.75 }).addTo(map);
+
+      document.getElementById('peak-label').textContent = 'Peak: ' + g.max + ' species';
+
+      const { apexes, boundaries } = partitionGrid(g);
+      const labels = ['West', 'Central', 'East'];
+
+      boundaries.forEach(lng => {
+        const line = L.polyline([[S, lng], [N, lng]], {
+          color: '#000', weight: 2, dashArray: '8,6', opacity: 0.7,
+        }).addTo(map);
+        partitionLines.push(line);
+      });
+
+      apexes.forEach((apex, idx) => {
+        if (!apex) return;
+        const icon = L.divIcon({
+          className: '',
+          html: `<div class="apex-label"><span class="star">★</span> ${labels[idx]}: ${apex.v}</div>`,
+          iconAnchor: [10, 10],
+          iconSize: [0, 0],
+        });
+        const m = L.marker([apex.lat, apex.lng], { icon, interactive: false }).addTo(map);
+        apexMarkers.push(m);
+      });
+    }
+
+    // Initial render at fine resolution
+    renderOverlay(1);
+
+    // Resolution buttons
+    const factors = { 'btn-fine': 1, 'btn-2x': 2, 'btn-4x': 4, 'btn-8x': 8 };
+    Object.entries(factors).forEach(([id, f]) => {
+      document.getElementById(id).addEventListener('click', () => {
+        Object.keys(factors).forEach(bid => document.getElementById(bid).classList.remove('active'));
+        document.getElementById(id).classList.add('active');
+        renderOverlay(f);
+      });
+    });
+
+    // State outlines
+    states.forEach(st => {
+      (st.rings || []).forEach(ring => {
+        L.polyline(ring.map(([lo, la]) => [la, lo]), {
+          color: '#000', weight: 1, opacity: 0.4, fill: false,
+        }).addTo(map);
+      });
+    });
+
+    // Click handler
+    map.on('click', function (e) {
+      const { lat, lng } = e.latlng;
+      const found = [];
+      for (const [tid, r] of Object.entries(rangesMap)) {
+        if (r.too_few || !r.polygons || !r.polygons.length) continue;
+        for (const ring of r.polygons) {
+          if (ring.length >= 4 && pointInRing(ring, lng, lat)) {
+            found.push({
+              taxon_id: tid,
+              species_name: r.taxon_name || r.display_name,
+              common_name: r.common_name || '',
+              family: r.family || '',
+            });
+            break;
+          }
+        }
+      }
+      found.sort((a, b) => {
+        if (a.family !== b.family) return a.family.localeCompare(b.family);
+        return a.species_name.localeCompare(b.species_name);
+      });
+      document.getElementById('statusbar').textContent = found.length + ' species at ' + lat.toFixed(4) + '°N, ' + Math.abs(lng).toFixed(4) + '°W';
+      renderPanel(found, lat.toFixed(4), lng.toFixed(4));
+    });
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+</script>
+</body>
+</html>
